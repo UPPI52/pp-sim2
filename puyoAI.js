@@ -9,10 +9,12 @@
 
     const AI_CONFIG = {
         WORKER_CANDIDATES: [
-            './puyo-ai-worker.js?v=4',
-            './puyo-ai-worker.js',
-            './puyoAI.worker.js?v=4',
-            './puyoAI.worker.js'
+  './gtr-ai-worker.js?v=1',
+  './gtr-ai-worker.js',
+  './puyo-ai-worker.js?v=4',
+  './puyo-ai-worker.js',
+  './puyoAI.worker.js?v=4',
+  './puyoAI.worker.js'
         ],
         AUTO_TICK_MS: 140,
         THINK_TIMEOUT_MS: 12000,
