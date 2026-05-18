@@ -605,7 +605,8 @@
         const beam = nodes.slice(0, CONFIG.BEAM_WIDTH);
         let best = -1e18;
 
-            for (const node of beam) {
+        
+        for (const node of beam) {
             const child = search(node.sim.board, pieces, depth + 1, pendingOjama, memo, stats);
             const total =
                 chainOutcomeValue(node.sim, pendingOjama) +
@@ -715,6 +716,16 @@
         const p2 = pieces[1] || null;
         const p3 = pieces[2] || null;
         if (!p2) return null;
+
+        // ユーザー要望: 初手は必ずGTR系の土台着手にする
+        // - 同色: 1,2列目に横置き
+        // - 異色: 1列目に縦置き（mainを下）
+        if (turn === 1) {
+            if (p1.mainColor === p1.subColor) {
+                return horizontalAtCols(board, p1, 1, true) || findPlacement(board, p1, 0, 1);
+            }
+            return verticalAtColWithBottom(board, p1, 1, p1.mainColor) || findPlacement(board, p1, 0, 0);
+        }
 
         const c1 = pieceCode(p1);
         const c2 = pieceCode(p2);
