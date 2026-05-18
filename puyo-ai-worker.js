@@ -605,7 +605,7 @@
         const beam = nodes.slice(0, CONFIG.BEAM_WIDTH);
         let best = -1e18;
 
-        for (const node of beam) {
+            for (const node of beam) {
             const child = search(node.sim.board, pieces, depth + 1, pendingOjama, memo, stats);
             const total =
                 chainOutcomeValue(node.sim, pendingOjama) +
@@ -627,6 +627,11 @@
 
         if (!pieces.length || board.length !== WIDTH * HEIGHT) {
             return { move: null, score: -1e18, stats };
+        }
+
+        const forced = chooseOpeningBookMove(board, pieces);
+        if (forced) {
+            return { move: forced, score: 9e18, stats };
         }
 
         TRANS_TABLE.clear();
@@ -661,6 +666,148 @@
             score: best.score,
             stats
         };
+    }
+
+    function pieceCode(p) {
+        const a = p.mainColor | 0;
+        const b = p.subColor | 0;
+        return `${Math.min(a, b)}${Math.max(a, b)}`;
+    }
+
+    function countOccupied(board) {
+        let n = 0;
+        for (let i = 0; i < board.length; i++) if (board[i] !== COLORS.EMPTY) n++;
+        return n;
+    }
+
+    function findPlacement(board, piece, x, rotation) {
+        const y = findRestY(board, piece, x, rotation);
+        if (y === null) return null;
+        return { x, y, rotation };
+    }
+
+    function verticalAtColWithBottom(board, piece, col0, bottomColor) {
+        const x = col0 - 1;
+        if (piece.mainColor === bottomColor) return findPlacement(board, piece, x, 0);
+        if (piece.subColor === bottomColor) return findPlacement(board, piece, x, 2);
+        return null;
+    }
+
+    function horizontalAtCols(board, piece, leftCol0, preferMainLeft = null) {
+        const x = leftCol0 - 1;
+        if (preferMainLeft === null) return findPlacement(board, piece, x, 1);
+        if (preferMainLeft) return findPlacement(board, piece, x, 1);
+        return findPlacement(board, piece, x, 3);
+    }
+
+    function colorsOf(piece) {
+        return [piece.mainColor, piece.subColor];
+    }
+
+    // GTR opening book (first 1-3 hands). Falls back to search when unknown.
+    function chooseOpeningBookMove(board, pieces) {
+        if (!pieces.length) return null;
+        const occupied = countOccupied(board);
+        const turn = Math.floor(occupied / 2) + 1;
+        if (turn < 1 || turn > 3) return null;
+
+        const p1 = pieces[0];
+        const p2 = pieces[1] || null;
+        const p3 = pieces[2] || null;
+        if (!p2) return null;
+
+        const c1 = pieceCode(p1);
+        const c2 = pieceCode(p2);
+        const same1 = p1.mainColor === p1.subColor;
+        const same2 = p2.mainColor === p2.subColor;
+        const [a1, b1] = colorsOf(p1);
+        const [a2, b2] = colorsOf(p2);
+
+        // AAAB型: 1手目AA、2手目AB（Aはp1の色）
+        const base = p1.mainColor;
+        const aaabType = same1 && !same2 && (a2 === base || b2 === base);
+        if (aaabType) {
+            if (turn === 1) return horizontalAtCols(board, p1, 1, true); // 1,2横
+            if (turn === 2) {
+                const other = a2 === base ? b2 : a2;
+                // 通常: 3列目B下縦
+                return verticalAtColWithBottom(board, p2, 3, other);
+            }
+            if (turn === 3 && p3) {
+                const [u, v] = colorsOf(p3);
+                const s3 = u === v;
+                const hasA = u === base || v === base;
+                if (s3 && u === base) return horizontalAtCols(board, p3, 4, true); // AA
+                if (s3 && !hasA) return horizontalAtCols(board, p3, 1, true); // CC
+                if (s3 && hasA) return findPlacement(board, p3, 3, 0); // BB
+                if (hasA) {
+                    const other = u === base ? v : u;
+                    if (other === base) return findPlacement(board, p3, 3, 0);
+                    if (other === 2 || other === 3 || other === 4) {
+                        if (other === b2) return verticalAtColWithBottom(board, p3, 4, other); // BC
+                        if (other !== b2) {
+                            if (other === 2 || other === 3 || other === 4) {
+                                if (other === b2) return verticalAtColWithBottom(board, p3, 4, other);
+                                if (other !== b2) return verticalAtColWithBottom(board, p3, 2, other) || verticalAtColWithBottom(board, p3, 4, other); // AC優先
+                            }
+                        }
+                    }
+                    return verticalAtColWithBottom(board, p3, 4, base); // ABはA下
+                }
+                // CD: 5,6横 or 6縦
+                return horizontalAtCols(board, p3, 5, true) || findPlacement(board, p3, 5, 0);
+            }
+        }
+
+        // AABB型
+        if (same1 && same2 && p1.mainColor !== p2.mainColor) {
+            if (turn === 1) return horizontalAtCols(board, p1, 1, true);
+            if (turn === 2) return horizontalAtCols(board, p2, 1, true);
+            if (turn === 3 && p3) {
+                const [u, v] = colorsOf(p3);
+                if (u === v && (u === p1.mainColor || u === p2.mainColor)) return horizontalAtCols(board, p3, 4, true);
+                if (u === v) return horizontalAtCols(board, p3, 4, true);
+                if (u === p1.mainColor || v === p1.mainColor) return horizontalAtCols(board, p3, 1, p3.mainColor === p1.mainColor); // AB
+                if (u === p2.mainColor || v === p2.mainColor) return verticalAtColWithBottom(board, p3, 1, p2.mainColor); // BC
+                return verticalAtColWithBottom(board, p3, 3, u) || horizontalAtCols(board, p3, 5, true); // AC/CD
+            }
+        }
+
+        // ABAB型
+        if (!same1 && !same2 && c1 === c2) {
+            if (turn === 1) return verticalAtColWithBottom(board, p1, 1, p1.mainColor) || findPlacement(board, p1, 0, 0);
+            if (turn === 2) return verticalAtColWithBottom(board, p2, 2, p1.mainColor) || findPlacement(board, p2, 1, 0);
+            if (turn === 3 && p3) {
+                const [u, v] = colorsOf(p3);
+                if (u === v) return horizontalAtCols(board, p3, 4, true); // AA/BB/CC
+                if ((u === p1.mainColor || v === p1.mainColor) && (u === p1.subColor || v === p1.subColor)) return horizontalAtCols(board, p3, 1, p3.mainColor === p1.mainColor); // AB
+                if (u !== p1.mainColor && v !== p1.mainColor) return verticalAtColWithBottom(board, p3, 3, u) || verticalAtColWithBottom(board, p3, 3, v); // AC
+                if (u !== p1.subColor && v !== p1.subColor) return verticalAtColWithBottom(board, p3, 1, p1.subColor); // BC
+                return horizontalAtCols(board, p3, 5, true) || findPlacement(board, p3, 5, 0); // CD
+            }
+        }
+
+        // ABAC型
+        const colors = new Set([p1.mainColor, p1.subColor, p2.mainColor, p2.subColor]);
+        const shared =
+            (p1.mainColor === p2.mainColor) ||
+            (p1.mainColor === p2.subColor) ||
+            (p1.subColor === p2.mainColor) ||
+            (p1.subColor === p2.subColor);
+        if (!same1 && !same2 && colors.size === 3 && shared) {
+            if (turn === 1) return horizontalAtCols(board, p1, 2, false); // A左で2,3
+            if (turn === 2) return verticalAtColWithBottom(board, p2, 1, p2.mainColor) || horizontalAtCols(board, p2, 2, false);
+            if (turn === 3 && p3) {
+                const [u, v] = colorsOf(p3);
+                if (u === v) {
+                    if (u === p1.mainColor || u === p1.subColor) return horizontalAtCols(board, p3, 3, true); // AA/DD
+                    return horizontalAtCols(board, p3, 1, true); // CC/BB
+                }
+                return horizontalAtCols(board, p3, 3, false) || verticalAtColWithBottom(board, p3, 4, v) || verticalAtColWithBottom(board, p3, 3, u);
+            }
+        }
+
+        return null;
     }
 
     function simulateSearch(state) {
@@ -709,4 +856,5 @@
             });
         }
     };
+})();
 })();
