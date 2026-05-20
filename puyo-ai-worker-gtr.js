@@ -15,8 +15,8 @@ const SEARCH_VISIBLE_HEIGHT = 12;
  * 列番号を内部x座標に変換
  * 1列目 → x=0, 2列目 → x=1, ..., 6列目 → x=5
  */
-function colToX(col0based) {
-    return col0based - 1;
+function colToX(col1based) {
+    return col1based - 1;
 }
 
 // ============ ピース配置の基本関数 ============
@@ -81,7 +81,7 @@ function findPlacement(board, piece, x, rotation) {
  * → 1列目にmain、2列目にsubを配置
  */
 function placeHorizontal(board, piece, leftCol1based, mainOnLeft = true) {
-    const x = colToX(leftCol1bases);
+    const x = colToX(leftCol1based);
     if (mainOnLeft) {
         // main が左、sub が右 → rotation 1
         return findPlacement(board, piece, x, 1);
