@@ -706,11 +706,14 @@
     }
 
     // GTR opening book (first 1-3 hands). Falls back to search when unknown.
-    function chooseOpeningBookMove(board, pieces) {
-        if (!pieces.length) return null;
-        const occupied = countOccupied(board);
-        const turn = Math.floor(occupied / 2) + 1;
-        if (turn < 1 || turn > 3) return null;
+function chooseOpeningBookMove(board, pieces) {
+    // GTR優先: 定型手があればそれを返す
+    const gtrMove = chooseOpeningBookMove_GTR(board, pieces);
+    if (gtrMove) return gtrMove;
+    
+    // GTR定型に該当しない場合は従来の汎用処理へ
+    return null;
+}
 
         const p1 = pieces[0];
         const p2 = pieces[1] || null;
