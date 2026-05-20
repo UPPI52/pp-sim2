@@ -705,123 +705,49 @@
         return [piece.mainColor, piece.subColor];
     }
 
-    // GTR opening book (first 1-3 hands). Falls back to search when unknown.
-function chooseOpeningBookMove(board, pieces) {
-    // GTR優先: 定型手があればそれを返す
-    const gtrMove = chooseOpeningBookMove_GTR(board, pieces);
-    if (gtrMove) return gtrMove;
-    
-    // GTR定型に該当しない場合は従来の汎用処理へ
-    return null;
-}
-
-        const p1 = pieces[0];
-        const p2 = pieces[1] || null;
-        const p3 = pieces[2] || null;
-        if (!p2) return null;
-
-        // ユーザー要望: 初手は必ずGTR系の土台着手にする
-        // - 同色: 1,2列目に横置き
-        // - 異色: 1列目に縦置き（mainを下）
-        if (turn === 1) {
-            if (p1.mainColor === p1.subColor) {
-                return horizontalAtCols(board, p1, 1, true) || findPlacement(board, p1, 0, 1);
-            }
-            return verticalAtColWithBottom(board, p1, 1, p1.mainColor) || findPlacement(board, p1, 0, 0);
-        }
-
-        const c1 = pieceCode(p1);
-        const c2 = pieceCode(p2);
-        const same1 = p1.mainColor === p1.subColor;
-        const same2 = p2.mainColor === p2.subColor;
-        const [a1, b1] = colorsOf(p1);
-        const [a2, b2] = colorsOf(p2);
-
-        // AAAB型: 1手目AA、2手目AB（Aはp1の色）
-        const base = p1.mainColor;
-        const aaabType = same1 && !same2 && (a2 === base || b2 === base);
-        if (aaabType) {
-            if (turn === 1) return horizontalAtCols(board, p1, 1, true); // 1,2横
-            if (turn === 2) {
-                const other = a2 === base ? b2 : a2;
-                // 通常: 3列目B下縦
-                return verticalAtColWithBottom(board, p2, 3, other);
-            }
-            if (turn === 3 && p3) {
-                const [u, v] = colorsOf(p3);
-                const s3 = u === v;
-                const hasA = u === base || v === base;
-                if (s3 && u === base) return horizontalAtCols(board, p3, 4, true); // AA
-                if (s3 && !hasA) return horizontalAtCols(board, p3, 1, true); // CC
-                if (s3 && hasA) return findPlacement(board, p3, 3, 0); // BB
-                if (hasA) {
-                    const other = u === base ? v : u;
-                    if (other === base) return findPlacement(board, p3, 3, 0);
-                    if (other === 2 || other === 3 || other === 4) {
-                        if (other === b2) return verticalAtColWithBottom(board, p3, 4, other); // BC
-                        if (other !== b2) {
-                            if (other === 2 || other === 3 || other === 4) {
-                                if (other === b2) return verticalAtColWithBottom(board, p3, 4, other);
-                                if (other !== b2) return verticalAtColWithBottom(board, p3, 2, other) || verticalAtColWithBottom(board, p3, 4, other); // AC優先
-                            }
-                        }
-                    }
-                    return verticalAtColWithBottom(board, p3, 4, base); // ABはA下
+    // ============ GTR優先の新しい開局ロジック ============
+    function chooseOpeningBookMove_GTR(board, pieces) {
+        if (!pieces || pieces.length < 2) return null;
+        
+        const occupied = countOccupied(board);
+        const turn = Math.floor(occupied / 2) + 1;
+        
+        if (turn < 1 || turn > 3) return null;
+        
+        const gtrInfo = detectGTRType(pieces);
+        if (!gtrInfo) return null;
+        
+        // 3手目がBBの特殊ケース判定（AAAB型）
+        if (gtrInfo.type === 'AAAB' && turn <= 2) {
+            const p3 = pieces[2];
+            if (p3 && p3.mainColor === p3.subColor) {
+                const baseColor = pieces[0].mainColor;
+                const otherColor = pieces[1].mainColor === baseColor ? pieces[1].subColor : pieces[1].mainColor;
+                if (p3.mainColor === otherColor) {
+                    return buildAAAB_BB_Move(board, pieces, turn);
                 }
-                // CD: 5,6横 or 6縦
-                return horizontalAtCols(board, p3, 5, true) || findPlacement(board, p3, 5, 0);
             }
         }
-
-        // AABB型
-        if (same1 && same2 && p1.mainColor !== p2.mainColor) {
-            if (turn === 1) return horizontalAtCols(board, p1, 1, true);
-            if (turn === 2) return horizontalAtCols(board, p2, 1, true);
-            if (turn === 3 && p3) {
-                const [u, v] = colorsOf(p3);
-                if (u === v && (u === p1.mainColor || u === p2.mainColor)) return horizontalAtCols(board, p3, 4, true);
-                if (u === v) return horizontalAtCols(board, p3, 4, true);
-                if (u === p1.mainColor || v === p1.mainColor) return horizontalAtCols(board, p3, 1, p3.mainColor === p1.mainColor); // AB
-                if (u === p2.mainColor || v === p2.mainColor) return verticalAtColWithBottom(board, p3, 1, p2.mainColor); // BC
-                return verticalAtColWithBottom(board, p3, 3, u) || horizontalAtCols(board, p3, 5, true); // AC/CD
-            }
+        
+        switch (gtrInfo.type) {
+            case 'AAAB':
+                return buildAAAB_Move(board, pieces, turn);
+            case 'AABB':
+                return buildAABB_Move(board, pieces, turn);
+            case 'ABAB':
+                return buildABAB_Move(board, pieces, turn, 1);
+            case 'ABAC':
+                return buildABAC_Move(board, pieces, turn);
+            case 'AABC':
+                return buildAABC_Move(board, pieces, turn);
+            default:
+                return null;
         }
+    }
 
-        // ABAB型
-        if (!same1 && !same2 && c1 === c2) {
-            if (turn === 1) return verticalAtColWithBottom(board, p1, 1, p1.mainColor) || findPlacement(board, p1, 0, 0);
-            if (turn === 2) return verticalAtColWithBottom(board, p2, 2, p1.mainColor) || findPlacement(board, p2, 1, 0);
-            if (turn === 3 && p3) {
-                const [u, v] = colorsOf(p3);
-                if (u === v) return horizontalAtCols(board, p3, 4, true); // AA/BB/CC
-                if ((u === p1.mainColor || v === p1.mainColor) && (u === p1.subColor || v === p1.subColor)) return horizontalAtCols(board, p3, 1, p3.mainColor === p1.mainColor); // AB
-                if (u !== p1.mainColor && v !== p1.mainColor) return verticalAtColWithBottom(board, p3, 3, u) || verticalAtColWithBottom(board, p3, 3, v); // AC
-                if (u !== p1.subColor && v !== p1.subColor) return verticalAtColWithBottom(board, p3, 1, p1.subColor); // BC
-                return horizontalAtCols(board, p3, 5, true) || findPlacement(board, p3, 5, 0); // CD
-            }
-        }
-
-        // ABAC型
-        const colors = new Set([p1.mainColor, p1.subColor, p2.mainColor, p2.subColor]);
-        const shared =
-            (p1.mainColor === p2.mainColor) ||
-            (p1.mainColor === p2.subColor) ||
-            (p1.subColor === p2.mainColor) ||
-            (p1.subColor === p2.subColor);
-        if (!same1 && !same2 && colors.size === 3 && shared) {
-            if (turn === 1) return horizontalAtCols(board, p1, 2, false); // A左で2,3
-            if (turn === 2) return verticalAtColWithBottom(board, p2, 1, p2.mainColor) || horizontalAtCols(board, p2, 2, false);
-            if (turn === 3 && p3) {
-                const [u, v] = colorsOf(p3);
-                if (u === v) {
-                    if (u === p1.mainColor || u === p1.subColor) return horizontalAtCols(board, p3, 3, true); // AA/DD
-                    return horizontalAtCols(board, p3, 1, true); // CC/BB
-                }
-                return horizontalAtCols(board, p3, 3, false) || verticalAtColWithBottom(board, p3, 4, v) || verticalAtColWithBottom(board, p3, 3, u);
-            }
-        }
-
-        return null;
+    function chooseOpeningBookMove(board, pieces) {
+        // GTR優先ロジックを使用
+        return chooseOpeningBookMove_GTR(board, pieces);
     }
 
     function simulateSearch(state) {
