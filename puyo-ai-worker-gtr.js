@@ -1,22 +1,145 @@
 /* 
- * GTR優先AI改修版 - 座標系修正版
- * - 「X列目」は左から1,2,3,4,5,6 で数える
- * - 内部座標xは0,1,2,3,4,5に変換
- * - Google Docsの定義に完全に従う
+ * GTR優先AI改修版 - 色認識システム統合版
+ * - ネクストリセット時に色認識をやり直す
+ * - 優先度順: 1手目main → 1手目sub → 2手目main → 2手目sub
+ * - 色をA,B,C,Dのアルファベットにマッピング
  */
 
 const WIDTH = 6;
 const HEIGHT = 14;
 const SEARCH_VISIBLE_HEIGHT = 12;
 
-// ============ 座標変換（1-indexed → 0-indexed） ============
+// ============ 色認識システム ============
 
 /**
- * 列番号を内部x座標に変換
- * 1列目 → x=0, 2列目 → x=1, ..., 6列目 → x=5
+ * 色認識の優先度ルール
+ * ネクストがリセットされるたびに色認識をやり直す
  */
+function recognizeColors(piece1, piece2) {
+    if (!piece1 || !piece2) return null;
+    
+    const colorMap = {};      // 色番号 → アルファベット
+    const usedLetters = new Set();
+    let nextLetter = 'A';
+    
+    /**
+     * 優先度順に色を処理
+     * 優先度: 1手目main → 1手目sub → 2手目main → 2手目sub
+     */
+    const priorityOrder = [
+        piece1.mainColor,
+        piece1.subColor,
+        piece2.mainColor,
+        piece2.subColor
+    ];
+    
+    // ケース (i): 1手目が同じ色か判定
+    if (piece1.mainColor === piece1.subColor) {
+        // (i) 1手目が同じ色
+        const baseColor = piece1.mainColor;
+        colorMap[baseColor] = 'A';
+        usedLetters.add('A');
+        nextLetter = 'B';
+        
+        // 2手目の色を処理（優先度順）
+        for (const color of [piece2.mainColor, piece2.subColor]) {
+            if (!(color in colorMap)) {
+                colorMap[color] = nextLetter;
+                usedLetters.add(nextLetter);
+                nextLetter = String.fromCharCode(nextLetter.charCodeAt(0) + 1);
+            }
+        }
+    } else {
+        // (ii) 1手目が異なる色
+        
+        // a) 1手目と2手目に共通する色があるか
+        const piece1Colors = new Set([piece1.mainColor, piece1.subColor]);
+        const piece2Colors = new Set([piece2.mainColor, piece2.subColor]);
+        const commonColors = [];
+        
+        for (const c of piece1Colors) {
+            if (piece2Colors.has(c)) {
+                commonColors.push(c);
+            }
+        }
+        
+        if (commonColors.length > 0) {
+            // (ii-a) 共通する色がある
+            let baseColor;
+            if (commonColors.length === 2) {
+                // 2色ある場合は1手目のmainをAにする
+                baseColor = piece1.mainColor;
+            } else {
+                // 1色の場合はそれをAにする
+                baseColor = commonColors[0];
+            }
+            
+            colorMap[baseColor] = 'A';
+            usedLetters.add('A');
+            nextLetter = 'B';
+            
+            // 優先度順に新しい色を処理
+            for (const color of priorityOrder) {
+                if (!(color in colorMap)) {
+                    colorMap[color] = nextLetter;
+                    usedLetters.add(nextLetter);
+                    nextLetter = String.fromCharCode(nextLetter.charCodeAt(0) + 1);
+                }
+            }
+        } else {
+            // (ii-b) 共通する色がない
+            // 認識優先順に新しい色が出る度にアルファベットを振り分け
+            for (const color of priorityOrder) {
+                if (!(color in colorMap)) {
+                    colorMap[color] = nextLetter;
+                    usedLetters.add(nextLetter);
+                    nextLetter = String.fromCharCode(nextLetter.charCodeAt(0) + 1);
+                }
+            }
+        }
+    }
+    
+    return colorMap;
+}
+
+/**
+ * ピースの色を数値からアルファベットに変換
+ */
+function convertPiecesToLetters(piece, colorMap) {
+    if (!piece || !colorMap) return null;
+    
+    return {
+        mainColor: colorMap[piece.mainColor],
+        subColor: colorMap[piece.subColor]
+    };
+}
+
+/**
+ * 3手分のピースを色認識してアルファベットに変換
+ */
+function recognizeAndConvertPieces(pieces) {
+    if (!pieces || pieces.length < 2) return null;
+    
+    // 色認識（1,2手目に基づいて）
+    const colorMap = recognizeColors(pieces[0], pieces[1]);
+    if (!colorMap) return null;
+    
+    // ピースを変換
+    const convertedPieces = [];
+    for (let i = 0; i < Math.min(pieces.length, 3); i++) {
+        convertedPieces.push(convertPiecesToLetters(pieces[i], colorMap));
+    }
+    
+    return {
+        pieces: convertedPieces,
+        colorMap: colorMap
+    };
+}
+
+// ============ 座標変換（1-indexed → 0-indexed） ============
+
 function colToX(col1based) {
-    return col1based - 1;
+    return (col1based | 0) - 1;
 }
 
 // ============ ピース配置の基本関数 ============
@@ -75,36 +198,24 @@ function findPlacement(board, piece, x, rotation) {
 
 // ============ 配置パターンヘルパー ============
 
-/**
- * 指定した2列（1-indexed）に横置き
- * 例: placePair(board, piece, 1, 2, 'main_left')
- * → 1列目にmain、2列目にsubを配置
- */
 function placeHorizontal(board, piece, leftCol1based, mainOnLeft = true) {
     const x = colToX(leftCol1based);
+    if (x < 0 || x >= WIDTH) return null;
     if (mainOnLeft) {
-        // main が左、sub が右 → rotation 1
-        return findPlacement(board, piece, x, 1);
+        return findPlacement(board, piece, x, 3); // main 左
     } else {
-        // sub が左、main が右 → rotation 3
-        return findPlacement(board, piece, x, 3);
+        return findPlacement(board, piece, x, 1); // main 右
     }
 }
 
-/**
- * 指定した列（1-indexed）に縦置き
- * targetColor が下に来るように配置
- */
 function placeVertical(board, piece, col1based, targetColorAtBottom) {
     const x = colToX(col1based);
-    
+    if (x < 0 || x >= WIDTH) return null;
     if (piece.mainColor === targetColorAtBottom) {
-        // main が下 → rotation 0
-        return findPlacement(board, piece, x, 0);
+        return findPlacement(board, piece, x, 0); // main が下（rotation 0）
     }
     if (piece.subColor === targetColorAtBottom) {
-        // sub が下 → rotation 2
-        return findPlacement(board, piece, x, 2);
+        return findPlacement(board, piece, x, 2); // sub が下（rotation 2）
     }
     return null;
 }
@@ -164,12 +275,10 @@ function buildAAAB_Move(board, pieces, turn) {
     const otherColor = p2.mainColor === baseColor ? p2.subColor : p2.mainColor;
     
     if (turn === 1) {
-        // 1手目: AAを1,2列目に横置き
         return placeHorizontal(board, p1, 1, true);
     }
     
     if (turn === 2) {
-        // 2手目: ABをBを下にして3列目に縦置き
         return placeVertical(board, p2, 3, otherColor);
     }
     
@@ -177,43 +286,35 @@ function buildAAAB_Move(board, pieces, turn) {
         const [u, v] = [p3.mainColor, p3.subColor];
         const s3 = (u === v);
         
-        // 3手目がBB: 4列目に縦置き(下優先)
         if (s3 && u === otherColor) {
             return placeVertical(board, p3, 4, otherColor);
         }
         
-        // 3手目がAA: 4,5列目に横置き
         if (s3 && u === baseColor) {
             return placeHorizontal(board, p3, 4, true);
         }
         
-        // 3手目がCC: 1,2列目に横置き
         if (s3 && u !== baseColor && u !== otherColor) {
             return placeHorizontal(board, p3, 1, true);
         }
         
-        // 3手目がAB: 4列目にA下縦置き
         if (!s3 && ((u === baseColor && v === otherColor) || (u === otherColor && v === baseColor))) {
             return placeVertical(board, p3, 4, baseColor);
         }
         
-        // 3手目がAC: 2列目にC下縦置き
         if (!s3) {
             const cColor = (u === baseColor) ? v : u;
             return placeVertical(board, p3, 2, cColor);
         }
         
-        // 3手目がBC: 4列目C下縦置き
         if (!s3 && ((u === otherColor) || (v === otherColor))) {
             const cColor = (u === otherColor) ? v : u;
             return placeVertical(board, p3, 4, cColor);
         }
         
-        // 3手目がCD: 5,6列目に横置き or 6列目に縦置き
-        // ここでは、4手目を見ない場合は5,6列目横置きをデフォルトに
         const move = placeHorizontal(board, p3, 5, true);
         if (move) return move;
-        return findPlacement(board, p3, colToX(6), 0); // 6列目縦置き
+        return findPlacement(board, p3, colToX(6), 0);
     }
     
     return null;
@@ -227,72 +328,17 @@ function buildAAAB_BB_Move(board, pieces, turn) {
     const baseColor = p1.mainColor;
     
     if (turn === 1) {
-        // 1手目: AAを1,2列目に横置き
         return placeHorizontal(board, p1, 1, true);
     }
     
     if (turn === 2) {
-        // 2手目: ABを2列目にB下の縦置き
         const otherColor = p2.mainColor === baseColor ? p2.subColor : p2.mainColor;
         return placeVertical(board, p2, 2, otherColor);
     }
     
     if (turn === 3) {
-        // 3手目: BB を1列目に縦置き
         const p3 = pieces[2];
-        return placeVertical(board, p3, 1, p3.mainColor); // 同色なのでどちらでもOK
-    }
-    
-    return null;
-}
-
-// ============ ABAB型の配置（Google Docs仕様） ============
-
-function buildABAB_Move(board, pieces, turn, variant = 1) {
-    const p1 = pieces[0];
-    const p2 = pieces[1];
-    const p3 = pieces[2];
-    const pat1 = piecePattern(p1);
-    
-    // variant: 1 = A下, 2 = B下
-    const targetColorForVertical = (variant === 1) ? p1.mainColor : p1.subColor;
-    
-    if (turn === 1) {
-        // 1手目: 1列目にtargetColor下縦置き
-        return placeVertical(board, p1, 1, targetColorForVertical);
-    }
-    
-    if (turn === 2) {
-        // 2手目: 2列目にtargetColor下縦置き
-        return placeVertical(board, p2, 2, targetColorForVertical);
-    }
-    
-    if (turn === 3 && p3) {
-        const [u, v] = [p3.mainColor, p3.subColor];
-        const s3 = (u === v);
-        
-        // 3手目がAA/BB/CC: 4,5列目に横置き
-        if (s3) {
-            return placeHorizontal(board, p3, 4, true);
-        }
-        
-        // 3手目がAB: 1,2列目にA右の横置き
-        if (!s3 && ((u === p1.mainColor && v === p1.subColor) || 
-                    (u === p1.subColor && v === p1.mainColor))) {
-            const mainOnLeft = (u === p1.mainColor);
-            return placeHorizontal(board, p3, 1, mainOnLeft);
-        }
-        
-        // 3手目がAC: 3列目にC下縦置き
-        if (!s3) {
-            const cColor = (u === p1.mainColor || u === p1.subColor) ? v : u;
-            return placeVertical(board, p3, 3, cColor);
-        }
-        
-        // 3手目がCD: 5,6列目に横置き or 6列目に縦置き
-        const move = placeHorizontal(board, p3, 5, true);
-        if (move) return move;
-        return findPlacement(board, p3, colToX(6), 0);
+        return placeVertical(board, p3, 1, p3.mainColor);
     }
     
     return null;
@@ -306,12 +352,10 @@ function buildAABB_Move(board, pieces, turn) {
     const p3 = pieces[2];
     
     if (turn === 1) {
-        // 1手目: AAを1,2列目に横置き
         return placeHorizontal(board, p1, 1, true);
     }
     
     if (turn === 2) {
-        // 2手目: BBを1,2列目に横置き
         return placeHorizontal(board, p2, 1, true);
     }
     
@@ -319,13 +363,56 @@ function buildAABB_Move(board, pieces, turn) {
         const [u, v] = [p3.mainColor, p3.subColor];
         const s3 = (u === v);
         
-        // 3手目が同色: 4,5列目に横置き
         if (s3) {
             return placeHorizontal(board, p3, 4, true);
         }
         
-        // 3手目が異色AB: 1,2列目にA右の横置き
         return placeHorizontal(board, p3, 1, u === p1.mainColor);
+    }
+    
+    return null;
+}
+
+// ============ ABAB型の配置（Google Docs仕様） ============
+
+function buildABAB_Move(board, pieces, turn, variant = 1) {
+    const p1 = pieces[0];
+    const p2 = pieces[1];
+    const p3 = pieces[2];
+    const pat1 = piecePattern(p1);
+    
+    const targetColorForVertical = (variant === 1) ? p1.mainColor : p1.subColor;
+    
+    if (turn === 1) {
+        return placeVertical(board, p1, 1, targetColorForVertical);
+    }
+    
+    if (turn === 2) {
+        return placeVertical(board, p2, 2, targetColorForVertical);
+    }
+    
+    if (turn === 3 && p3) {
+        const [u, v] = [p3.mainColor, p3.subColor];
+        const s3 = (u === v);
+        
+        if (s3) {
+            return placeHorizontal(board, p3, 4, true);
+        }
+        
+        if (!s3 && ((u === p1.mainColor && v === p1.subColor) || 
+                    (u === p1.subColor && v === p1.mainColor))) {
+            const mainOnLeft = (u === p1.mainColor);
+            return placeHorizontal(board, p3, 1, mainOnLeft);
+        }
+        
+        if (!s3) {
+            const cColor = (u === p1.mainColor || u === p1.subColor) ? v : u;
+            return placeVertical(board, p3, 3, cColor);
+        }
+        
+        const move = placeHorizontal(board, p3, 5, true);
+        if (move) return move;
+        return findPlacement(board, p3, colToX(6), 0);
     }
     
     return null;
@@ -338,21 +425,13 @@ function buildABAC_Move(board, pieces, turn) {
     const p2 = pieces[1];
     const p3 = pieces[2];
     
-    // ABAC型は2パターンある
-    // パターン（ⅰ）: 1手目A左2,3列目、2手目A下1列目
-    // パターン（ⅱ）: 1手目A下1列目、2手目A左2,3列目
-    
-    // 簡略版: パターン（ⅰ）を優先
-    
     if (turn === 1) {
-        // 1手目: A左の2,3列目横置き
-        return placeHorizontal(board, p1, 2, false); // sub左
+        return placeHorizontal(board, p1, 2, false);
     }
     
     if (turn === 2) {
-        // 2手目: A下の1列目縦置き
         const aColor = p1.mainColor;
-        return placeVertical(board, p2, 1, aColor);
+        return placeVertical(board, p2, 1, aColor) || placeHorizontal(board, p2, 2, false);
     }
     
     if (turn === 3 && p3) {
@@ -360,11 +439,9 @@ function buildABAC_Move(board, pieces, turn) {
         const s3 = (u === v);
         
         if (s3) {
-            // 3手目が同色: 3,4列目に横置き
             return placeHorizontal(board, p3, 3, true);
         }
         
-        // 3手目が異色: 3,4列目横置き or 4列目縦置きなど
         const move = placeHorizontal(board, p3, 3, false);
         if (move) return move;
         return placeVertical(board, p3, 4, v) || placeVertical(board, p3, 3, u);
@@ -383,31 +460,24 @@ function buildAABC_Move(board, pieces, turn) {
     const [bColor, cColor] = [p2.mainColor, p2.subColor];
     
     if (turn === 1) {
-        // 1手目: AAを1,2列目に横置き
         return placeHorizontal(board, p1, 1, true);
     }
     
     if (turn === 2) {
-        // 2手目: BCはBを右にして3,4列目に横置き
-        // または他のパターンに対応
         const [a, b] = [p2.mainColor, p2.subColor];
         
         if (piecePattern(p2) === `${Math.min(bColor, cColor)}${Math.max(bColor, cColor)}`) {
-            // BC: Bを右 → main左, sub右 = rotation 1
-            return placeHorizontal(board, p2, 3, false); // sub左
+            return placeHorizontal(board, p2, 3, false);
         }
         
-        // AB: Bを左 → 5,6列目横置き
         if ((a === baseColor && b !== baseColor) || (b === baseColor && a !== baseColor)) {
             return placeHorizontal(board, p2, 5, a !== baseColor);
         }
         
-        // BB: 5,6列目横置き
         if (a === b) {
             return placeHorizontal(board, p2, 5, true);
         }
         
-        // デフォルト
         return placeHorizontal(board, p2, 3, false);
     }
     
@@ -416,54 +486,59 @@ function buildAABC_Move(board, pieces, turn) {
         const s3 = (u === v);
         
         if (s3 && u === baseColor) {
-            // 3手目がAA: 2,3列目に横置き
             return placeHorizontal(board, p3, 2, true);
         }
         
         if (s3) {
-            // 3手目がCC/DD: 1,2列目に横置き
             return placeHorizontal(board, p3, 1, true);
         }
         
-        // 3手目が異色: 汎用
         return placeHorizontal(board, p3, 5, true) || findPlacement(board, p3, colToX(6), 0);
     }
     
     return null;
 }
 
-// ============ メイン: GTR優先の着手選択 ============
+// ============ メイン: GTR優先の着手選択（色認識統合版） ============
 
 function chooseOpeningBookMove_GTR(board, pieces) {
     if (!pieces || pieces.length < 2) return null;
+    
+    // ============ 新しい色認識ロジック ============
+    const recognitionResult = recognizeAndConvertPieces(pieces);
+    if (!recognitionResult) return null;
+    
+    const convertedPieces = recognitionResult.pieces;
+    const colorMap = recognitionResult.colorMap;
     
     const occupied = countOccupied(board);
     const turn = Math.floor(occupied / 2) + 1;
     
     if (turn < 1 || turn > 3) return null;
     
-    const gtrInfo = detectGTRType(pieces);
+    // ============ GTR型判定（アルファベット変換後） ============
+    const gtrInfo = detectGTRType(convertedPieces);
     if (!gtrInfo) return null;
     
     // 3手目がBBの特殊ケース判定（AAAB型）
     if (gtrInfo.type === 'AAAB' && turn <= 2) {
-        const p3 = pieces[2];
+        const p3 = convertedPieces[2];
         if (p3 && p3.mainColor === p3.subColor && p3.mainColor === gtrInfo.otherColor) {
-            return buildAAAB_BB_Move(board, pieces, turn);
+            return buildAAAB_BB_Move(board, convertedPieces, turn);
         }
     }
     
     switch (gtrInfo.type) {
         case 'AAAB':
-            return buildAAAB_Move(board, pieces, turn);
+            return buildAAAB_Move(board, convertedPieces, turn);
         case 'AABB':
-            return buildAABB_Move(board, pieces, turn);
+            return buildAABB_Move(board, convertedPieces, turn);
         case 'ABAB':
-            return buildABAB_Move(board, pieces, turn, 1);
+            return buildABAB_Move(board, convertedPieces, turn, 1);
         case 'ABAC':
-            return buildABAC_Move(board, pieces, turn);
+            return buildABAC_Move(board, convertedPieces, turn);
         case 'AABC':
-            return buildAABC_Move(board, pieces, turn);
+            return buildAABC_Move(board, convertedPieces, turn);
         default:
             return null;
     }
