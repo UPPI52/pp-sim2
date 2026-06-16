@@ -798,4 +798,368 @@
     };
 })();
 })();
+// ============ GTR opening book v2 (49 cases, latest doc) ============
 
+function recognizeColors(piece1, piece2, piece3 = null) {
+    if (!piece1 || !piece2) return null;
+
+    const colorMap = {};
+    const priorityOrder = [
+        piece1.mainColor,
+        piece1.subColor,
+        piece2.mainColor,
+        piece2.subColor,
+    ];
+
+    if (piece3) {
+        priorityOrder.push(piece3.mainColor, piece3.subColor);
+    }
+
+    let anchor = null;
+
+    if (piece1.mainColor === piece1.subColor) {
+        anchor = piece1.mainColor;
+    } else {
+        const piece1Colors = new Set([piece1.mainColor, piece1.subColor]);
+        const piece2Colors = new Set([piece2.mainColor, piece2.subColor]);
+        const commonColors = [...piece1Colors].filter((c) => piece2Colors.has(c));
+
+        if (commonColors.length === 2) {
+            anchor = piece1.mainColor;
+        } else if (commonColors.length === 1) {
+            anchor = commonColors[0];
+        }
+    }
+
+    let nextLetterCode = 65; // A
+
+    if (anchor !== null) {
+        colorMap[anchor] = 'A';
+        nextLetterCode = 66; // B
+    }
+
+    for (const color of priorityOrder) {
+        if (!(color in colorMap)) {
+            colorMap[color] = String.fromCharCode(nextLetterCode);
+            nextLetterCode++;
+        }
+    }
+
+    return colorMap;
+}
+
+function convertPiecesToLetters(piece, colorMap) {
+    if (!piece || !colorMap) return null;
+
+    return {
+        mainColor: colorMap[piece.mainColor],
+        subColor: colorMap[piece.subColor]
+    };
+}
+
+function recognizeAndConvertPieces(pieces) {
+    if (!pieces || pieces.length < 2) return null;
+
+    const colorMap = recognizeColors(pieces[0], pieces[1], pieces[2] || null);
+    if (!colorMap) return null;
+
+    const convertedPieces = [];
+    for (let i = 0; i < Math.min(pieces.length, 3); i++) {
+        convertedPieces.push(convertPiecesToLetters(pieces[i], colorMap));
+    }
+
+    return {
+        pieces: convertedPieces,
+        colorMap
+    };
+}
+
+function gtrCaseType(caseNo) {
+    if (caseNo >= 1 && caseNo <= 7) return 'AAAB';
+    if (caseNo >= 8 && caseNo <= 14) return 'AABB';
+    if (caseNo >= 15 && caseNo <= 21) return 'ABAB';
+    if (caseNo >= 22 && caseNo <= 30) return 'ABAC';
+    if (caseNo >= 31 && caseNo <= 39) return 'AABC';
+    if (caseNo >= 40 && caseNo <= 49) return 'ABCC';
+    return null;
+}
+
+function gtrH(col, opts = {}) {
+    return { kind: 'H', col, ...opts };
+}
+
+function gtrV(col, opts = {}) {
+    return { kind: 'V', col, ...opts };
+}
+
+const GTR_CASE_KEYS_V2 = {
+    1:  'AA|AB|AA',
+    2:  'AA|AB|AB',
+    3:  'AA|AB|AC',
+    4:  'AA|AB|BB',
+    5:  'AA|AB|BC',
+    6:  'AA|AB|CC',
+    7:  'AA|AB|CD',
+
+    8:  'AA|BB|AA',
+    9:  'AA|BB|AB',
+    10: 'AA|BB|AC',
+    11: 'AA|BB|BB',
+    12: 'AA|BB|BC',
+    13: 'AA|BB|CC',
+    14: 'AA|BB|CD',
+
+    15: 'AB|AB|AA',
+    16: 'AB|AB|AB',
+    17: 'AB|AB|AC',
+    18: 'AB|AB|BB',
+    19: 'AB|AB|BC',
+    20: 'AB|AB|CC',
+    21: 'AB|AB|CD',
+
+    22: 'AB|AC|AA',
+    23: 'AB|AC|AB',
+    24: 'AB|AC|AC',
+    25: 'AB|AC|AD',
+    26: 'AB|AC|BB',
+    27: 'AB|AC|BC',
+    28: 'AB|AC|BD',
+    29: 'AB|AC|CC',
+    30: 'AB|AC|CD',
+
+    31: 'AA|BC|AA',
+    32: 'AA|BC|AB',
+    33: 'AA|BC|AC',
+    34: 'AA|BC|AD',
+    35: 'AA|BC|BB',
+    36: 'AA|BC|BC',
+    37: 'AA|BC|BD',
+    38: 'AA|BC|CC',
+    39: 'AA|BC|CD',
+
+    40: 'AB|CC|AA',
+    41: 'AB|CC|AB',
+    42: 'AB|CC|AC',
+    43: 'AB|CC|AD',
+    44: 'AB|CC|BB',
+    45: 'AB|CC|BC',
+    46: 'AB|CC|BD',
+    47: 'AB|CC|CC',
+    48: 'AB|CC|CD',
+    49: 'AB|CC|DD'
+};
+
+const GTR_PATTERN_TO_CASE_V2 = Object.create(null);
+for (const [caseNoStr, patternKey] of Object.entries(GTR_CASE_KEYS_V2)) {
+    GTR_PATTERN_TO_CASE_V2[patternKey] = Number(caseNoStr);
+}
+
+const GTR_CASES_V2 = {
+    1:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrH(4, { same: true })],
+    2:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrV(4, { bottom: 'A' })],
+    3:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrV(2, { bottom: 'C' })],
+    4:  [gtrH(1, { same: true }), gtrV(2, { bottom: 'B' }), gtrV(1, { same: true })],
+    5:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrV(4, { bottom: 'C' })],
+    6:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrH(1, { same: true })],
+    7:  [gtrH(1, { same: true }), gtrV(3, { bottom: 'B' }), gtrH(5, { left: 'C' })],
+
+    8:  [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrH(4, { same: true })],
+    9:  [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrH(1, { right: 'A' })],
+    10: [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrV(3, { bottom: 'C' })],
+    11: [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrH(4, { same: true })],
+    12: [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrV(1, { bottom: 'B' })],
+    13: [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrH(4, { same: true })],
+    14: [gtrH(1, { same: true }), gtrH(1, { same: true }), gtrH(3, { left: 'C' })],
+
+    15: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrH(4, { same: true })],
+    16: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrH(1, { right: 'A' })],
+    17: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrV(3, { bottom: 'C' })],
+    18: [gtrV(1, { bottom: 'B' }), gtrV(2, { bottom: 'B' }), gtrH(4, { same: true })],
+    19: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrV(1, { bottom: 'B' })],
+    20: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrH(4, { same: true })],
+    21: [gtrV(1, { bottom: 'A' }), gtrV(2, { bottom: 'A' }), gtrH(5, { left: 'C' })],
+
+    22: [gtrH(2, { left: 'A' }), gtrV(1, { bottom: 'A' }), gtrH(3, { same: true })],
+    23: [gtrV(1, { bottom: 'A' }), gtrH(2, { left: 'A' }), gtrH(2, { right: 'A' })],
+    24: [gtrH(2, { left: 'A' }), gtrV(1, { bottom: 'A' }), gtrH(2, { right: 'A' })],
+    25: [gtrV(1, { bottom: 'A' }), gtrH(2, { left: 'A' }), gtrH(3, { left: 'A' })],
+    26: [gtrV(1, { bottom: 'A' }), gtrH(2, { left: 'A' }), gtrH(1, { same: true })],
+    27: [gtrH(2, { left: 'A' }), gtrV(1, { bottom: 'A' }), gtrV(4, { bottom: 'C' })],
+    28: [gtrH(2, { left: 'A' }), gtrV(1, { bottom: 'A' }), gtrV(4, { bottom: 'D' })],
+    29: [gtrV(4, { bottom: 'B' }), gtrV(3, { bottom: 'A' }), gtrH(1, { same: true })],
+    30: [gtrV(1, { bottom: 'A' }), gtrH(2, { left: 'A' }), gtrV(4, { top: 'C' })],
+
+    31: [gtrH(1, { same: true }), gtrH(2, { right: 'B' }), gtrH(2, { same: true })],
+    32: [gtrH(1, { same: true }), gtrH(3, { right: 'B' }), gtrH(5, { left: 'B' })],
+    33: [gtrH(1, { same: true }), gtrH(3, { right: 'C' }), gtrH(5, { left: 'C' })],
+    34: [gtrH(1, { same: true }), gtrH(3, { left: 'B' }), gtrH(2, { right: 'A' })],
+    35: [gtrH(1, { same: true }), gtrH(3, { right: 'B' }), gtrH(5, { same: true })],
+    36: [gtrH(1, { same: true }), gtrH(3, { right: 'B' }), gtrV(5, { bottom: 'B' })],
+    37: [gtrH(4, { same: true }), gtrV(1, { bottom: 'B' }), gtrH(2, { left: 'B' })],
+    38: [gtrH(1, { same: true }), gtrH(2, { left: 'C' }), gtrV(1, { same: true })],
+    39: [gtrH(1, { same: true }), gtrH(3, { right: 'C' }), gtrH(5, { left: 'C' })],
+
+    40: [gtrH(3, { right: 'A' }), gtrH(1, { same: true }), gtrH(5, { same: true })],
+    41: [gtrV(1, { bottom: 'A' }), gtrH(3, { same: true }), gtrV(2, { bottom: 'A' })],
+    42: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(3, { right: 'A' })],
+    43: [gtrH(3, { right: 'A' }), gtrH(1, { same: true }), gtrH(5, { left: 'A' })],
+    44: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(5, { same: true })],
+    45: [gtrH(3, { right: 'A' }), gtrH(1, { same: true }), gtrH(3, { right: 'B' })],
+    46: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(5, { left: 'B' })],
+    47: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(5, { same: true })],
+    48: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(2, { right: 'C' })],
+    49: [gtrH(3, { right: 'B' }), gtrH(1, { same: true }), gtrH(1, { same: true })]
+};
+
+function gtrApplyDescriptor(board, piece, desc) {
+    if (!desc) return null;
+
+    const col = (desc.col | 0) - 1;
+    if (col < 0 || col >= WIDTH) return null;
+
+    const sameColor = piece.mainColor === piece.subColor;
+
+    if (desc.kind === 'H') {
+        if (sameColor || desc.same) {
+            return findPlacement(board, piece, col + 1, 1);
+        }
+
+        if (desc.left) {
+            if (piece.mainColor === desc.left) {
+                return findPlacement(board, piece, col, 3);
+            }
+            if (piece.subColor === desc.left) {
+                return findPlacement(board, piece, col + 1, 1);
+            }
+            return null;
+        }
+
+        if (desc.right) {
+            if (piece.mainColor === desc.right) {
+                return findPlacement(board, piece, col + 1, 1);
+            }
+            if (piece.subColor === desc.right) {
+                return findPlacement(board, piece, col, 3);
+            }
+            return null;
+        }
+
+        return findPlacement(board, piece, col, 3);
+    }
+
+    if (desc.kind === 'V') {
+        if (sameColor || desc.same) {
+            return findPlacement(board, piece, col, 0);
+        }
+
+        if (desc.bottom) {
+            if (piece.mainColor === desc.bottom) {
+                return findPlacement(board, piece, col, 0);
+            }
+            if (piece.subColor === desc.bottom) {
+                return findPlacement(board, piece, col, 2);
+            }
+            return null;
+        }
+
+        if (desc.top) {
+            if (piece.mainColor === desc.top) {
+                return findPlacement(board, piece, col, 2);
+            }
+            if (piece.subColor === desc.top) {
+                return findPlacement(board, piece, col, 0);
+            }
+            return null;
+        }
+
+        return findPlacement(board, piece, col, 0);
+    }
+
+    return null;
+}
+
+function detectGTRType(pieces) {
+    const recognized = recognizeAndConvertPieces(pieces);
+    if (!recognized || !recognized.pieces || recognized.pieces.length < 3) return null;
+
+    const convertedPieces = recognized.pieces;
+    const key = convertedPieces.slice(0, 3).map(piecePattern).join('|');
+    const caseNo = GTR_PATTERN_TO_CASE_V2[key];
+
+    if (!caseNo) return null;
+
+    return {
+        caseNo,
+        type: gtrCaseType(caseNo),
+        key,
+        pieces: convertedPieces,
+        colorMap: recognized.colorMap
+    };
+}
+
+function buildGTRMoveByCaseNo(board, pieces, turn, caseNo) {
+    const plan = GTR_CASES_V2[caseNo];
+    if (!plan) return null;
+    if (turn < 1 || turn > 3) return null;
+
+    const desc = plan[turn - 1];
+    if (!desc) return null;
+
+    return gtrApplyDescriptor(board, pieces[turn - 1], desc);
+}
+
+function buildAAAB_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'AAAB') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildAAAB_BB_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'AAAB') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildAABB_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'AABB') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildABAB_Move(board, pieces, turn, variant = 1) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'ABAB') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildABAC_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'ABAC') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildAABC_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'AABC') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function buildABCC_Move(board, pieces, turn) {
+    const detected = detectGTRType(pieces);
+    if (!detected || detected.type !== 'ABCC') return null;
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
+
+function chooseOpeningBookMove_GTR(board, pieces) {
+    if (!pieces || pieces.length < 3) return null;
+
+    const detected = detectGTRType(pieces);
+    if (!detected) return null;
+
+    const occupied = countOccupied(board);
+    const turn = Math.floor(occupied / 2) + 1;
+
+    if (turn < 1 || turn > 3) return null;
+
+    return buildGTRMoveByCaseNo(board, detected.pieces, turn, detected.caseNo);
+}
